@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Intel 8080/8085 Assembler & Emulator</title>
+  <link rel="stylesheet" href="style.css">
+
+  <!-- CodeMirror -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+</head>
+<body>
+
+  <div id="app">
+
+    <header id="topbar">
+      <div id="logo">
+        <span class="logo-chip">&#9642;</span>
+        <span class="logo-text">INTEL 8080/8085</span>
+        <span class="logo-sub">ASSEMBLER &amp; EMULATOR</span>
+      </div>
+      <div id="toolbar">
+        <button class="btn btn-primary" id="btn-assemble" title="Assemble (F5)">&#9654; ASSEMBLE</button>
+        <button class="btn btn-action" id="btn-run" title="Run (F8)" disabled>&#9654;&#9654; RUN</button>
+        <button class="btn btn-action" id="btn-step" title="Step (F10)" disabled>&#9654;| STEP</button>
+        <button class="btn btn-danger" id="btn-reset" title="Reset (F12)" disabled>&#8634; RESET</button>
+        <div id="speed-control">
+          <label for="speed-slider">SPEED</label>
+          <input type="range" id="speed-slider" min="1" max="5" value="3">
+          <span id="speed-label">MED</span>
+        </div>
+      </div>
+      <div id="status-bar">
+        <span id="status-indicator" class="status-idle">&#11044;</span>
+        <span id="status-text">READY</span>
+      </div>
+    </header>
+
+    <main id="workspace">
+
+      <!-- LEFT: Editor -->
+      <section id="editor-panel">
+        <div class="panel-header">
+          <span class="panel-title">SOURCE</span>
+          <div class="panel-actions">
+            <button class="btn-small" id="btn-load-sample">LOAD SAMPLE</button>
+            <button class="btn-small" id="btn-clear">CLEAR</button>
+          </div>
+        </div>
+        <div id="editor-container">
+          <textarea id="code-editor"></textarea>
+        </div>
+        <div id="error-panel" class="hidden">
+          <div class="panel-header"><span class="panel-title error-title">&#9888; ERRORS</span></div>
+          <div id="error-list"></div>
+        </div>
+      </section>
+
+      <!-- RIGHT: CPU + Memory + Console -->
+      <section id="right-panel">
+
+        <!-- CPU State -->
+        <div id="cpu-panel">
+          <div class="panel-header"><span class="panel-title">CPU STATE</span></div>
+          <div id="cpu-grid">
+            <div class="reg-group">
+              <div class="reg-row">
+                <div class="reg-cell" id="reg-A"><span class="reg-name">A</span><span class="reg-val" id="val-A">00</span></div>
+                <div class="reg-cell flags-cell">
+                  <span class="reg-name">FLAGS</span>
+                  <div class="flags-row">
+                    <span class="flag" id="flag-S">S</span>
+                    <span class="flag" id="flag-Z">Z</span>
+                    <span class="flag" id="flag-AC">AC</span>
+                    <span class="flag" id="flag-P">P</span>
+                    <span class="flag" id="flag-CY">CY</span>
+                  </div>
+                </div>
+              </div>
+              <div class="reg-row">
+                <div class="reg-cell"><span class="reg-name">B</span><span class="reg-val" id="val-B">00</span></div>
+                <div class="reg-cell"><span class="reg-name">C</span><span class="reg-val" id="val-C">00</span></div>
+              </div>
+              <div class="reg-row">
+                <div class="reg-cell"><span class="reg-name">D</span><span class="reg-val" id="val-D">00</span></div>
+                <div class="reg-cell"><span class="reg-name">E</span><span class="reg-val" id="val-E">00</span></div>
+              </div>
+              <div class="reg-row">
+                <div class="reg-cell"><span class="reg-name">H</span><span class="reg-val" id="val-H">00</span></div>
+                <div class="reg-cell"><span class="reg-name">L</span><span class="reg-val" id="val-L">00</span></div>
+              </div>
+              <div class="reg-row">
+                <div class="reg-cell wide-cell"><span class="reg-name">SP</span><span class="reg-val" id="val-SP">0000</span></div>
+                <div class="reg-cell wide-cell"><span class="reg-name">PC</span><span class="reg-val" id="val-PC">0000</span></div>
+              </div>
+            </div>
+          </div>
+          <div id="cycle-counter">
+            <span class="reg-name">CYCLES</span>
+            <span id="val-cycles">0</span>
+          </div>
+        </div>
+
+        <!-- Memory Hex Dump -->
+        <div id="mem-panel">
+          <div class="panel-header">
+            <span class="panel-title">MEMORY</span>
+            <div class="panel-actions">
+              <label for="mem-addr">ADDR</label>
+              <input type="text" id="mem-addr" value="0000" maxlength="4" placeholder="0000">
+              <button class="btn-small" id="btn-goto">GO</button>
+            </div>
+          </div>
+          <div id="mem-dump"></div>
+        </div>
+
+        <!-- Console -->
+        <div id="console-panel">
+          <div class="panel-header">
+            <span class="panel-title">CONSOLE / I/O</span>
+            <button class="btn-small" id="btn-clear-console">CLEAR</button>
+          </div>
+          <div id="console-output"></div>
+          <div id="console-input-row">
+            <span class="prompt">&gt;</span>
+            <input type="text" id="console-input" placeholder="Input (for IN instruction)..." disabled>
+          </div>
+        </div>
+
+      </section>
+    </main>
+
+  </div>
+
+  <script src="assembler.js"></script>
+  <script src="emulator.js"></script>
+  <script src="ui.js"></script>
+</body>
+</html>

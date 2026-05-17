@@ -111,9 +111,11 @@
   // CodeMirror prefixes token names with "cm-" automatically
   // We define each via CSS class names that map exactly
 
-  // ---- Sample program --------------------------------------
+  // ---- Sample programs -------------------------------------
 
-  const SAMPLE_PROGRAM = `; ============================================
+  const SAMPLES = {
+
+    fibonacci: `; ============================================
 ; Intel 8080/8085 Sample Program
 ; Fibonacci sequence — first 8 values in RAM
 ; Results stored starting at address 0100H
@@ -154,7 +156,73 @@ PRINT:
         HLT                 ; Done
 
         END
-`;
+`,
+
+    callret: `; ============================================
+; Intel 8080/8085 Sample Program
+; CALL / RET Demo
+;
+; Demonstrates subroutine calls using CALL
+; and RET. The stack pointer is used to save
+; and restore the return address automatically.
+;
+; Three subroutines are called in sequence:
+;   DOUBLE  — multiplies A by 2
+;   ADDTEN  — adds 10 to A
+;   PRINTIT — outputs A to console port 01H
+;
+; Watch SP change as CALL pushes and RET pops
+; the return address on the stack.
+; ============================================
+
+        ORG     0000H
+
+START:
+        LXI     SP, 0F000H  ; Set up stack pointer
+
+        MVI     A, 05H      ; A = 5
+        CALL    DOUBLE      ; A = 10  (5 * 2)
+        CALL    ADDTEN      ; A = 20  (10 + 10)
+        CALL    PRINTIT     ; Output 20 to console
+
+        MVI     A, 03H      ; A = 3
+        CALL    DOUBLE      ; A = 6   (3 * 2)
+        CALL    DOUBLE      ; A = 12  (6 * 2)
+        CALL    ADDTEN      ; A = 22  (12 + 10)
+        CALL    PRINTIT     ; Output 22 to console
+
+        HLT                 ; Done
+
+; ---- Subroutine: DOUBLE ----------------------
+; Multiplies register A by 2 (left shift by 1)
+; Input:  A = value to double
+; Output: A = value * 2
+; Modifies: A, flags
+DOUBLE:
+        ADD     A           ; A = A + A  (same as A * 2)
+        RET
+
+; ---- Subroutine: ADDTEN ----------------------
+; Adds 10 (0AH) to register A
+; Input:  A = value
+; Output: A = value + 10
+; Modifies: A, flags
+ADDTEN:
+        ADI     0AH         ; A = A + 10
+        RET
+
+; ---- Subroutine: PRINTIT ---------------------
+; Outputs register A to console port 01H
+; Input:  A = value to print
+; Output: none
+; Modifies: nothing
+PRINTIT:
+        OUT     01H         ; Send A to console
+        RET
+
+        END
+`
+  };
 
   // ---- State -----------------------------------------------
 
@@ -165,6 +233,7 @@ PRINT:
   let prevState = null;
   let pendingInput = null;
   let inputResolve = null;
+  let currentFilename = 'program.asm';
 
   const SPEED_MAP = { 1: 50, 2: 20, 3: 5, 4: 1, 5: 0 };
   const SPEED_LABELS = { 1: 'MIN', 2: 'SLOW', 3: 'MED', 4: 'FAST', 5: 'MAX' };
@@ -176,9 +245,14 @@ PRINT:
   const btnStep     = document.getElementById('btn-step');
   const btnReset    = document.getElementById('btn-reset');
   const btnGoto     = document.getElementById('btn-goto');
-  const btnLoadSample = document.getElementById('btn-load-sample');
-  const btnClear    = document.getElementById('btn-clear');
+  const btnLoadSample   = document.getElementById('btn-load-sample');
+  const btnLoadFile     = document.getElementById('btn-load-file');
+  const btnSave         = document.getElementById('btn-save');
+  const btnCopy         = document.getElementById('btn-copy');
+  const btnClear        = document.getElementById('btn-clear');
   const btnClearConsole = document.getElementById('btn-clear-console');
+  const sampleDropdown  = document.getElementById('sample-dropdown');
+  const fileInput       = document.getElementById('file-input');
   const memAddrInput = document.getElementById('mem-addr');
   const memDump     = document.getElementById('mem-dump');
   const consoleOutput = document.getElementById('console-output');
@@ -534,18 +608,93 @@ PRINT:
   btnStep.addEventListener('click', stepOne);
   btnReset.addEventListener('click', resetEmulator);
 
-  btnLoadSample.addEventListener('click', () => {
-    if (editor.getValue().trim() && !confirm('Replace current code with sample program?')) return;
-    editor.setValue(SAMPLE_PROGRAM);
-    hideErrors();
-    assembled = false;
-    setControlsState(false);
-    setStatus('idle', 'READY');
+  // ---- LOAD SAMPLE dropdown --------------------------------
+
+  btnLoadSample.addEventListener('click', (e) => {
+    e.stopPropagation();
+    sampleDropdown.classList.toggle('hidden');
   });
+
+  document.querySelectorAll('.sample-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const key = item.dataset.sample;
+      const src = SAMPLES[key];
+      if (!src) return;
+      if (editor.getValue().trim() && !confirm('Replace current code with sample program?')) return;
+      editor.setValue(src);
+      currentFilename = key + '.asm';
+      hideErrors();
+      assembled = false;
+      setControlsState(false);
+      setStatus('idle', 'READY');
+      sampleDropdown.classList.add('hidden');
+    });
+  });
+
+  // Close dropdown if user clicks anywhere else
+  document.addEventListener('click', () => {
+    sampleDropdown.classList.add('hidden');
+  });
+
+  // ---- LOAD FILE -------------------------------------------
+
+  btnLoadFile.addEventListener('click', () => {
+    fileInput.value = ''; // reset so same file can be reloaded
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      editor.setValue(e.target.result);
+      currentFilename = file.name;
+      hideErrors();
+      assembled = false;
+      setControlsState(false);
+      setStatus('idle', 'READY');
+      consolePrint(`Loaded: ${file.name}`, 'console-line sys');
+    };
+    reader.readAsText(file);
+  });
+
+  // ---- SAVE ------------------------------------------------
+
+  btnSave.addEventListener('click', () => {
+    const source = editor.getValue();
+    if (!source.trim()) return;
+    const blob = new Blob([source], { type: 'text/plain' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = currentFilename;
+    a.click();
+    URL.revokeObjectURL(url);
+    consolePrint(`Saved: ${currentFilename}`, 'console-line sys');
+  });
+
+  // ---- COPY ------------------------------------------------
+
+  btnCopy.addEventListener('click', () => {
+    const source = editor.getValue();
+    if (!source.trim()) return;
+    navigator.clipboard.writeText(source).then(() => {
+      btnCopy.textContent = 'COPIED \u2713';
+      btnCopy.classList.add('copied');
+      setTimeout(() => {
+        btnCopy.textContent = 'COPY';
+        btnCopy.classList.remove('copied');
+      }, 1500);
+    });
+  });
+
+  // ---- CLEAR -----------------------------------------------
 
   btnClear.addEventListener('click', () => {
     if (editor.getValue().trim() && !confirm('Clear the editor?')) return;
     editor.setValue('');
+    currentFilename = 'program.asm';
     hideErrors();
     assembled = false;
     assemblyResult = null;
@@ -588,7 +737,7 @@ PRINT:
   setStatus('idle', 'READY');
   setControlsState(false);
   renderMemory(0);
-  editor.setValue(SAMPLE_PROGRAM);
+  editor.setValue(SAMPLES.fibonacci);
   editor.refresh();
 
   consolePrint('8080/8085 Emulator ready. Press ASSEMBLE or F5 to begin.', 'console-line sys');

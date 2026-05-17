@@ -44,10 +44,22 @@
         <div class="panel-header">
           <span class="panel-title">SOURCE</span>
           <div class="panel-actions">
-            <button class="btn-small" id="btn-load-sample">LOAD SAMPLE</button>
+            <div class="btn-sample-wrap">
+              <button class="btn-small" id="btn-load-sample">LOAD SAMPLE &#9660;</button>
+              <div id="sample-dropdown" class="sample-dropdown hidden">
+                <div class="sample-item" data-sample="fibonacci">Fibonacci Sequence</div>
+                <div class="sample-item" data-sample="callret">CALL / RET Demo</div>
+              </div>
+            </div>
+            <div class="btn-divider"></div>
+            <button class="btn-small" id="btn-load-file">LOAD FILE</button>
+            <button class="btn-small" id="btn-save">SAVE</button>
+            <button class="btn-small" id="btn-copy">COPY</button>
+            <div class="btn-divider"></div>
             <button class="btn-small" id="btn-clear">CLEAR</button>
           </div>
         </div>
+        <input type="file" id="file-input" accept=".asm,.s,.txt" style="display:none">
         <div id="editor-container">
           <textarea id="code-editor"></textarea>
         </div>

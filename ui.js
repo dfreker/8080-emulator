@@ -95,12 +95,6 @@
     autofocus: true,
     styleActiveLine: true,
     gutters: ['CodeMirror-linenumbers', 'breakpoints'],
-    extraKeys: {
-      'F5': () => assemble(),
-      'F8': () => runToggle(),
-      'F10': () => stepOne(),
-      'F12': () => resetEmulator(),
-    }
   });
 
   // Breakpoint gutter click — fires for any gutter column
@@ -841,7 +835,7 @@ PRINTIT:
     });
   }, 300);
 
-  consolePrint('8080/8085 Emulator ready. Press ASSEMBLE or F5 to begin.', 'console-line sys');
+  consolePrint('8080/8085 Emulator ready. Press ASSEMBLE to begin.', 'console-line sys');
   consolePrint('I/O: OUT port 01H prints byte value. OUT port 02H prints ASCII.', 'console-line sys');
   consolePrint('After assembly, click a line number to set or clear a breakpoint.', 'console-line sys');
 

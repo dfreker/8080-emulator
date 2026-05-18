@@ -94,6 +94,7 @@
     tabSize: 8,
     autofocus: true,
     styleActiveLine: true,
+    gutters: ['CodeMirror-linenumbers', 'breakpoints'],
     extraKeys: {
       'F5': () => assemble(),
       'F8': () => runToggle(),
@@ -102,14 +103,10 @@
     }
   });
 
-  // Apply custom token CSS classes
-  editor.on('renderLine', function(cm, line, el) {
-    // CodeMirror applies classes via getTokenAt; we handle via mode return values
+  // Breakpoint gutter click — fires for any gutter column
+  editor.on('gutterClick', (cm, lineNum, gutter) => {
+    toggleBreakpoint(lineNum);
   });
-
-  // Override CodeMirror's default token class naming
-  // CodeMirror prefixes token names with "cm-" automatically
-  // We define each via CSS class names that map exactly
 
   // ---- Sample programs -------------------------------------
 
@@ -234,6 +231,8 @@ PRINTIT:
   let pendingInput = null;
   let inputResolve = null;
   let currentFilename = 'program.asm';
+  let breakpoints = new Set();
+  let savedStatus = null;
 
   const SPEED_MAP = { 1: 50, 2: 20, 3: 5, 4: 1, 5: 0 };
   const SPEED_LABELS = { 1: 'MIN', 2: 'SLOW', 3: 'MED', 4: 'FAST', 5: 'MAX' };
@@ -315,6 +314,7 @@ PRINTIT:
     hideErrors();
     setStatus('ok', `ASSEMBLED — ${Object.keys(result.symbols).length} SYMBOLS`);
     assembled = true;
+    clearAllBreakpoints();
 
     Emulator.loadProgram(result.bytes, result.origin);
     prevState = null;
@@ -366,7 +366,8 @@ PRINTIT:
           if (s.halted) { stopRunning(); updateUI(); return; }
           Emulator.step();
           count++;
-          if (performance.now() - start > 16) break; // yield to browser
+          if (checkBreakpoint()) return;
+          if (performance.now() - start > 16) break;
         }
         updateUI();
         runInterval = requestAnimationFrame(burst);
@@ -376,11 +377,11 @@ PRINTIT:
       runInterval = setInterval(() => {
         const s = Emulator.getState();
         if (s.halted) { stopRunning(); updateUI(); return; }
-        // Run a few steps per tick for smoother perf
         const stepsPerTick = speed >= 4 ? 10 : 1;
         for (let i = 0; i < stepsPerTick; i++) {
           if (Emulator.getState().halted) break;
           Emulator.step();
+          if (checkBreakpoint()) return;
         }
         updateUI();
         scrollMemoryToPC();
@@ -497,6 +498,66 @@ PRINTIT:
     if (!running) {
       editor.scrollIntoView({ line: lineNum, ch: 0 }, 80);
     }
+  }
+
+  // ---- Breakpoints -----------------------------------------
+
+  function checkBreakpoint() {
+    if (breakpoints.size === 0) return false;
+    const s = Emulator.getState();
+    if (!assemblyResult || !assemblyResult.addrToLine) return false;
+    const lineNum = assemblyResult.addrToLine[s.PC];
+    if (lineNum !== undefined && breakpoints.has(lineNum)) {
+      stopRunning();
+      updateUI();
+      scrollMemoryToPC();
+      setStatus('ok', `BREAKPOINT — LINE ${lineNum + 1}`);
+      consolePrint(`Breakpoint hit at line ${lineNum + 1} (PC=0x${s.PC.toString(16).toUpperCase().padStart(4,'0')})`, 'console-line info');
+      return true;
+    }
+    return false;
+  }
+
+  function toggleBreakpoint(lineNum) {
+    // If already set, remove it
+    if (breakpoints.has(lineNum)) {
+      breakpoints.delete(lineNum);
+      editor.setGutterMarker(lineNum, 'breakpoints', null);
+      return;
+    }
+
+    // Require assembly before setting breakpoints
+    if (!assembled || !assemblyResult || !assemblyResult.addrToLine) {
+      editor.setGutterMarker(lineNum, 'breakpoints', makeMarker(true));
+      setTimeout(() => editor.setGutterMarker(lineNum, 'breakpoints', null), 800);
+      return;
+    }
+
+    // Check if this line number appears as a value in addrToLine
+    const validLines = new Set(Object.values(assemblyResult.addrToLine));
+    if (!validLines.has(lineNum)) {
+      editor.setGutterMarker(lineNum, 'breakpoints', makeMarker(true));
+      setTimeout(() => editor.setGutterMarker(lineNum, 'breakpoints', null), 800);
+      return;
+    }
+
+    breakpoints.add(lineNum);
+    editor.setGutterMarker(lineNum, 'breakpoints', makeMarker(false));
+  }
+
+  function makeMarker(invalid) {
+    const dot = document.createElement('div');
+    dot.className = invalid ? 'bp-marker bp-invalid' : 'bp-marker';
+    dot.textContent = '●';
+    dot.title = invalid ? 'No instruction on this line' : 'Breakpoint (click to remove)';
+    return dot;
+  }
+
+  function clearAllBreakpoints() {
+    breakpoints.forEach(lineNum => {
+      editor.setGutterMarker(lineNum, 'breakpoints', null);
+    });
+    breakpoints.clear();
   }
 
   // ---- Memory dump -----------------------------------------
@@ -740,7 +801,48 @@ PRINTIT:
   editor.setValue(SAMPLES.fibonacci);
   editor.refresh();
 
+  // Status bar hint on gutter hover
+  setTimeout(() => {
+    const oldTip = document.getElementById('gutter-tooltip');
+    if (oldTip) oldTip.remove();
+
+    function onGutterEnter() {
+      if (savedStatus) return; // already showing hint
+      savedStatus = { cls: statusIndicator.className, text: statusText.innerHTML };
+      statusText.innerHTML = 'Click line number to<br>set / clear breakpoint';
+    }
+    function onGutterLeave(e) {
+      // Only restore if we're leaving the entire gutters zone
+      const guttersEl = document.querySelector('.CodeMirror-gutters');
+      if (guttersEl && guttersEl.contains(e.relatedTarget)) return;
+      if (savedStatus) {
+        statusIndicator.className = savedStatus.cls;
+        statusText.innerHTML = savedStatus.text;
+        savedStatus = null;
+      }
+    }
+
+    // Attach to the gutters container AND every child gutter element
+    const targets = document.querySelectorAll(
+      '.CodeMirror-gutters, .CodeMirror-gutter, .CodeMirror-linenumbers, .CodeMirror-linenumber'
+    );
+    targets.forEach(el => {
+      el.addEventListener('mouseenter', onGutterEnter);
+      el.addEventListener('mouseleave', onGutterLeave);
+    });
+
+    // Also re-attach when new line number elements are created (CodeMirror renders them dynamically)
+    editor.on('update', () => {
+      document.querySelectorAll('.CodeMirror-linenumber:not([data-bp-listener])').forEach(el => {
+        el.setAttribute('data-bp-listener', '1');
+        el.addEventListener('mouseenter', onGutterEnter);
+        el.addEventListener('mouseleave', onGutterLeave);
+      });
+    });
+  }, 300);
+
   consolePrint('8080/8085 Emulator ready. Press ASSEMBLE or F5 to begin.', 'console-line sys');
   consolePrint('I/O: OUT port 01H prints byte value. OUT port 02H prints ASCII.', 'console-line sys');
+  consolePrint('After assembly, click a line number to set or clear a breakpoint.', 'console-line sys');
 
 })();

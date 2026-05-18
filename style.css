@@ -36,7 +36,29 @@ html, body {
   overflow: hidden;
 }
 
-/* Scanline overlay */
+/* Breakpoint gutter */
+.CodeMirror-gutter.breakpoints { width: 14px; }
+
+.bp-marker {
+  color: var(--red);
+  font-size: 11px;
+  line-height: 1.6;
+  cursor: pointer;
+  text-align: center;
+  display: block;
+  transition: opacity 0.3s;
+}
+
+.bp-marker.bp-invalid {
+  color: #5a2020;
+  filter: none;
+  animation: bp-fade 0.8s ease-out forwards;
+}
+
+@keyframes bp-fade {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
 body::after {
   content: '';
   position: fixed;
@@ -131,6 +153,12 @@ body::after {
   color: var(--text-dim);
   letter-spacing: 0.1em;
   flex-shrink: 0;
+  max-width: 180px;
+  min-height: 32px;
+}
+
+#status-text {
+  line-height: 1.2;
 }
 
 #status-indicator {

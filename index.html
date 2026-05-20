@@ -127,17 +127,41 @@
           <div id="mem-dump"></div>
         </div>
 
-        <!-- Console -->
+        <!-- Console / Symbol Table (tabbed) -->
         <div id="console-panel">
           <div class="panel-header">
-            <span class="panel-title">CONSOLE / I/O</span>
+            <div class="tab-bar">
+              <button class="tab-btn active" id="tab-console">CONSOLE / I/O</button>
+              <button class="tab-btn" id="tab-symbols">SYMBOLS</button>
+            </div>
             <button class="btn-small" id="btn-clear-console">CLEAR</button>
           </div>
-          <div id="console-output"></div>
-          <div id="console-input-row">
-            <span class="prompt">&gt;</span>
-            <input type="text" id="console-input" placeholder="Input (for IN instruction)..." disabled>
+
+          <!-- Console tab -->
+          <div id="console-tab">
+            <div id="console-output"></div>
+            <div id="console-input-row">
+              <span class="prompt">&gt;</span>
+              <input type="text" id="console-input" placeholder="Input (for IN instruction)..." disabled>
+            </div>
           </div>
+
+          <!-- Symbol table tab -->
+          <div id="symbols-tab" class="hidden">
+            <div id="symbol-table-wrap">
+              <div id="symbol-table-empty">Assemble a program to see symbols.</div>
+              <table id="symbol-table">
+                <thead>
+                  <tr>
+                    <th id="sort-name" class="sortable">SYMBOL <span class="sort-arrow">▲</span></th>
+                    <th id="sort-addr" class="sortable">ADDRESS <span class="sort-arrow"></span></th>
+                  </tr>
+                </thead>
+                <tbody id="symbol-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+
         </div>
 
       </section>

@@ -658,6 +658,148 @@ body::after {
 #mem-dump::-webkit-scrollbar-thumb { background: var(--border-hi); }
 
 /* ============================================================
+   TABS (Console / Symbols)
+   ============================================================ */
+
+.tab-bar {
+  display: flex;
+  gap: 0;
+  flex: 1;
+}
+
+.tab-btn {
+  font-family: var(--display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  padding: 0 12px;
+  height: 100%;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tab-btn:hover { color: var(--text-dim); }
+
+.tab-btn.active {
+  color: var(--green);
+  background: rgba(57,255,20,0.05);
+}
+
+/* ============================================================
+   SYMBOL TABLE
+   ============================================================ */
+
+#symbols-tab {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#symbol-table-wrap {
+  flex: 1;
+  overflow-y: auto;
+}
+
+#symbol-table-empty {
+  padding: 12px 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: italic;
+}
+
+#symbol-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  table-layout: fixed;
+}
+
+#symbol-table thead th:first-child { width: 30%; }
+#symbol-table thead th:last-child  { width: 70%; }
+
+#symbol-table thead th {
+  font-family: var(--display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--text-muted);
+  padding: 4px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  position: sticky;
+  top: 0;
+}
+
+#symbol-table thead th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+#symbol-table thead th.sortable:hover {
+  color: var(--green);
+}
+
+#symbol-table thead th.sort-active {
+  color: var(--green);
+}
+
+.sort-arrow {
+  font-size: 8px;
+  margin-left: 3px;
+  color: var(--green);
+}
+
+#symbol-table tbody tr {
+  transition: background 0.15s;
+  cursor: default;
+}
+
+#symbol-table tbody tr:hover {
+  background: rgba(57,255,20,0.04);
+}
+
+#symbol-table tbody tr.sym-active {
+  background: rgba(57,255,20,0.1);
+}
+
+#symbol-table tbody td {
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+}
+
+.sym-name {
+  color: var(--amber);
+  letter-spacing: 0.05em;
+}
+
+.sym-addr {
+  color: var(--green);
+  letter-spacing: 0.08em;
+}
+
+.sym-val {
+  color: var(--text-dim);
+}
+
+.sym-active .sym-name,
+.sym-active .sym-addr,
+.sym-active .sym-val {
+  color: var(--green);
+  text-shadow: 0 0 6px rgba(57,255,20,0.4);
+}
+
+#symbol-table-wrap::-webkit-scrollbar { width: 4px; }
+#symbol-table-wrap::-webkit-scrollbar-track { background: var(--bg2); }
+#symbol-table-wrap::-webkit-scrollbar-thumb { background: var(--border-hi); }
+
+/* ============================================================
    CONSOLE PANEL
    ============================================================ */
 
@@ -667,6 +809,13 @@ body::after {
   flex-direction: column;
   flex-shrink: 0;
   background: var(--bg2);
+}
+
+#console-tab {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
 }
 
 #console-output {

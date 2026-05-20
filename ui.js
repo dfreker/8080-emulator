@@ -246,6 +246,13 @@ PRINTIT:
   const btnClearConsole = document.getElementById('btn-clear-console');
   const sampleDropdown  = document.getElementById('sample-dropdown');
   const fileInput       = document.getElementById('file-input');
+  const tabConsole      = document.getElementById('tab-console');
+  const tabSymbols      = document.getElementById('tab-symbols');
+  const consoleTab      = document.getElementById('console-tab');
+  const symbolsTab      = document.getElementById('symbols-tab');
+  const symbolTableBody = document.getElementById('symbol-table-body');
+  const symbolTableEmpty= document.getElementById('symbol-table-empty');
+  const symbolTable     = document.getElementById('symbol-table');
   const memAddrInput = document.getElementById('mem-addr');
   const memDump     = document.getElementById('mem-dump');
   const consoleOutput = document.getElementById('console-output');
@@ -309,6 +316,7 @@ PRINTIT:
     setStatus('ok', `ASSEMBLED — ${Object.keys(result.symbols).length} SYMBOLS`);
     assembled = true;
     clearAllBreakpoints();
+    renderSymbolTable(result.symbols);
 
     Emulator.loadProgram(result.bytes, result.origin);
     prevState = null;
@@ -415,6 +423,7 @@ PRINTIT:
     updateFlags(s);
     updateCycles(s);
     highlightPCLine(s.PC);
+    updateSymbolHighlight(s.PC);
     renderMemory();
     prevState = { A:s.A, B:s.B, C:s.C, D:s.D, E:s.E, H:s.H, L:s.L,
                   SP:s.SP, PC:s.PC,
@@ -630,6 +639,115 @@ PRINTIT:
     statusText.textContent = text;
   }
 
+  // ---- Symbol table ----------------------------------------
+
+  let symSortCol = 'addr'; // 'name' or 'addr'
+  let symSortAsc = true;
+
+  function renderSymbolTable(symbols) {
+    symbolTableBody.innerHTML = '';
+    const entries = Object.entries(symbols);
+    if (entries.length === 0) {
+      symbolTableEmpty.style.display = 'block';
+      symbolTable.style.display = 'none';
+      return;
+    }
+    symbolTableEmpty.style.display = 'none';
+    symbolTable.style.display = 'table';
+    sortAndPopulate(entries);
+    updateSortHeaders();
+  }
+
+  function sortAndPopulate(entries) {
+    if (!entries) {
+      if (!assemblyResult || !assemblyResult.symbols) return;
+      entries = Object.entries(assemblyResult.symbols);
+    }
+    entries.sort((a, b) => {
+      let cmp = symSortCol === 'name'
+        ? a[0].localeCompare(b[0])
+        : a[1] - b[1];
+      return symSortAsc ? cmp : -cmp;
+    });
+
+    symbolTableBody.innerHTML = '';
+    entries.forEach(([name, val]) => {
+      const tr = document.createElement('tr');
+      tr.dataset.addr = val;
+      tr.innerHTML = `
+        <td class="sym-name">${name}</td>
+        <td class="sym-addr">${hex4(val)}</td>
+      `;
+      symbolTableBody.appendChild(tr);
+    });
+
+    // Re-apply PC highlight
+    const s = Emulator.getState();
+    updateSymbolHighlight(s.PC);
+  }
+
+  function updateSortHeaders() {
+    const nameHdr = document.getElementById('sort-name');
+    const addrHdr = document.getElementById('sort-addr');
+    nameHdr.classList.toggle('sort-active', symSortCol === 'name');
+    addrHdr.classList.toggle('sort-active', symSortCol === 'addr');
+    nameHdr.querySelector('.sort-arrow').textContent = symSortCol === 'name' ? (symSortAsc ? '▲' : '▼') : '';
+    addrHdr.querySelector('.sort-arrow').textContent = symSortCol === 'addr' ? (symSortAsc ? '▲' : '▼') : '';
+  }
+
+  // Sort header click handlers
+  document.getElementById('sort-name').addEventListener('click', () => {
+    if (symSortCol === 'name') symSortAsc = !symSortAsc;
+    else { symSortCol = 'name'; symSortAsc = true; }
+    sortAndPopulate();
+    updateSortHeaders();
+  });
+
+  document.getElementById('sort-addr').addEventListener('click', () => {
+    if (symSortCol === 'addr') symSortAsc = !symSortAsc;
+    else { symSortCol = 'addr'; symSortAsc = true; }
+    sortAndPopulate();
+    updateSortHeaders();
+  });
+
+  function updateSymbolHighlight(pc) {
+    if (!assemblyResult || !assemblyResult.symbols) return;
+    document.querySelectorAll('#symbol-table-body tr').forEach(tr => {
+      const addr = parseInt(tr.dataset.addr);
+      tr.classList.toggle('sym-active', addr === pc);
+    });
+  }
+
+  function clearSymbolTable() {
+    symbolTableBody.innerHTML = '';
+    symbolTableEmpty.style.display = 'block';
+    symbolTable.style.display = 'none';
+    symSortCol = 'addr';
+    symSortAsc = true;
+    updateSortHeaders();
+  }
+
+  // ---- Tab switching ---------------------------------------
+
+  tabConsole.addEventListener('click', () => {
+    tabConsole.classList.add('active');
+    tabSymbols.classList.remove('active');
+    consoleTab.classList.remove('hidden');
+    symbolsTab.classList.add('hidden');
+    btnClearConsole.style.display = '';
+  });
+
+  tabSymbols.addEventListener('click', () => {
+    tabSymbols.classList.add('active');
+    tabConsole.classList.remove('active');
+    symbolsTab.classList.remove('hidden');
+    consoleTab.classList.add('hidden');
+    btnClearConsole.style.display = 'none';
+    // Update highlight when switching to symbols tab
+    const s = Emulator.getState();
+    updateSymbolHighlight(s.PC);
+  });
+
   // ---- Errors ----------------------------------------------
 
   function showErrors(errors) {
@@ -751,6 +869,7 @@ PRINTIT:
     editor.setValue('');
     currentFilename = 'program.asm';
     hideErrors();
+    clearSymbolTable();
     assembled = false;
     assemblyResult = null;
     Emulator.reset();

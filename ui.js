@@ -734,7 +734,7 @@ PRINTIT:
     tabSymbols.classList.remove('active');
     consoleTab.classList.remove('hidden');
     symbolsTab.classList.add('hidden');
-    btnClearConsole.style.display = '';
+    btnClearConsole.style.visibility = '';
   });
 
   tabSymbols.addEventListener('click', () => {
@@ -742,7 +742,7 @@ PRINTIT:
     tabConsole.classList.remove('active');
     symbolsTab.classList.remove('hidden');
     consoleTab.classList.add('hidden');
-    btnClearConsole.style.display = 'none';
+    btnClearConsole.style.visibility = 'hidden';
     // Update highlight when switching to symbols tab
     const s = Emulator.getState();
     updateSymbolHighlight(s.PC);

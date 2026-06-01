@@ -925,6 +925,71 @@ PRINTIT:
     }
   });
 
+  // ---- Panel resizer ---------------------------------------
+
+  const resizer      = document.getElementById('panel-resizer');
+  const consolePanel = document.getElementById('console-panel');
+  const MIN_HEIGHT   = 140;
+  const MAX_HEIGHT   = 400;
+
+  // Restore saved height
+  const savedHeight = parseInt(localStorage.getItem('consolePanelHeight'));
+  if (savedHeight && savedHeight >= MIN_HEIGHT && savedHeight <= MAX_HEIGHT) {
+    consolePanel.style.height = savedHeight + 'px';
+  } else {
+    consolePanel.style.height = MIN_HEIGHT + 'px';
+  }
+
+  let dragStartY = 0;
+  let dragStartHeight = 0;
+  let isHovering = false;
+
+  // Manage highlight purely through JS to avoid Safari stuck :hover
+  resizer.addEventListener('mouseenter', () => {
+    isHovering = true;
+    resizer.style.background = 'var(--green-dim)';
+  });
+
+  resizer.addEventListener('mouseleave', () => {
+    isHovering = false;
+    if (!resizer.classList.contains('dragging')) {
+      resizer.style.background = '';
+    }
+  });
+
+  resizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    dragStartY = e.clientY;
+    dragStartHeight = consolePanel.offsetHeight;
+    resizer.classList.add('dragging');
+    resizer.style.background = 'var(--green-dim)';
+    document.body.style.cursor = 'row-resize';
+    document.body.classList.add('no-select');
+
+    function onMouseMove(e) {
+      e.preventDefault();
+      const delta = dragStartY - e.clientY;
+      const newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, dragStartHeight + delta));
+      consolePanel.style.height = newHeight + 'px';
+    }
+
+    function onMouseUp() {
+      resizer.classList.remove('dragging');
+      // Only keep highlight if mouse is still physically over the resizer
+      if (!isHovering) {
+        resizer.style.background = '';
+      }
+      document.body.style.cursor = '';
+      document.body.classList.remove('no-select');
+      localStorage.setItem('consolePanelHeight', consolePanel.offsetHeight);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    }
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  });
+
   // ---- Init ------------------------------------------------
 
   setStatus('idle', 'READY');

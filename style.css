@@ -27,6 +27,11 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+body.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 html, body {
   height: 100%;
   background: var(--bg);
@@ -803,12 +808,41 @@ body::after {
    CONSOLE PANEL
    ============================================================ */
 
+#panel-resizer {
+  height: 5px;
+  background: var(--border);
+  cursor: row-resize;
+  flex-shrink: 0;
+  transition: background 0.15s;
+  position: relative;
+  -webkit-user-select: none;
+  user-select: none;
+  pointer-events: all;
+  z-index: 10;
+}
+
+#panel-resizer.dragging {
+  background: var(--green-dim);
+  cursor: row-resize;
+}
+
+#panel-resizer::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 30px;
+  height: 1px;
+  background: var(--border-hi);
+}
+
 #console-panel {
-  height: 140px;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   background: var(--bg2);
+  overflow: hidden;
 }
 
 #console-tab {

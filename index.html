@@ -49,6 +49,7 @@
               <div id="sample-dropdown" class="sample-dropdown hidden">
                 <div class="sample-item" data-sample="fibonacci">Fibonacci Sequence</div>
                 <div class="sample-item" data-sample="callret">CALL / RET Demo</div>
+                <div class="sample-item" data-sample="helloworld">Hello World — Data Demo</div>
               </div>
             </div>
             <div class="btn-divider"></div>
@@ -114,16 +115,21 @@
           </div>
         </div>
 
-        <!-- Memory Hex Dump -->
+        <!-- Memory Hex Dump (tabbed: CODE / DATA / STACK) -->
         <div id="mem-panel">
           <div class="panel-header">
-            <span class="panel-title">MEMORY</span>
-            <div class="panel-actions">
+            <div class="tab-bar">
+              <button class="tab-btn active" id="mem-tab-code">CODE</button>
+              <button class="tab-btn" id="mem-tab-data">DATA</button>
+              <button class="tab-btn" id="mem-tab-stack">STACK</button>
+            </div>
+            <div class="panel-actions" id="mem-addr-controls">
               <label for="mem-addr">ADDR</label>
               <input type="text" id="mem-addr" value="0000" maxlength="4" placeholder="0000">
               <button class="btn-small" id="btn-goto">GO</button>
             </div>
           </div>
+          <div id="mem-tab-label" class="mem-tab-label hidden"></div>
           <div id="mem-dump"></div>
         </div>
 

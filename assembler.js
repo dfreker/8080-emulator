@@ -265,6 +265,7 @@ const Assembler = (() => {
     const errors = [];
     const symbols = {};
     let origin = 0;
+    let originSet = false;
     let pc = 0;
 
     // Map from address -> source line number (0-indexed)
@@ -294,7 +295,7 @@ const Assembler = (() => {
       if (mn === 'ORG') {
         try {
           pc = resolveExpr(parsed.operands, symbols);
-          origin = pc;
+          if (!originSet) { origin = pc; originSet = true; }
         } catch(e) {
           errors.push({ line: i+1, msg: String(e) });
         }
@@ -429,9 +430,19 @@ const Assembler = (() => {
     }
 
     const allErrors = [...errors, ...pass2Errors];
-    if (allErrors.length > 0) return { success: false, errors: allErrors, bytes: null, symbols, addrToLine, origin };
+    if (allErrors.length > 0) return { success: false, errors: allErrors, bytes: null, symbols, addrToLine, origin, dataAddresses: [] };
 
-    return { success: true, errors: [], bytes: memory, symbols, addrToLine, lineToAddr, origin };
+    // Collect data addresses from DB/DW/DS directives
+    const dataAddresses = [];
+    for (const inst of instructions) {
+      if (!inst || !inst.parsed || !inst.isDirective) continue;
+      const mn = inst.parsed.mnemonic;
+      if (mn === 'DB' || mn === 'DW' || mn === 'DS' || mn === 'DEFB' || mn === 'DEFW' || mn === 'DEFS') {
+        dataAddresses.push(inst.pc);
+      }
+    }
+
+    return { success: true, errors: [], bytes: memory, symbols, addrToLine, lineToAddr, origin, dataAddresses };
   }
 
   function estimateDB(operands) {

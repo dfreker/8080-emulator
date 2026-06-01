@@ -213,7 +213,56 @@ PRINTIT:
 
         END
 `
+
   };
+
+  SAMPLES.helloworld = `; ============================================
+; Intel 8080/8085 Sample Program
+; Hello World — Data Table Demo
+;
+; Demonstrates DB directives and data memory.
+; A string "Hello World!" is stored in memory
+; using DB directives starting at address 0200H.
+;
+; The program reads each character byte by byte
+; and outputs it to the console via port 02H
+; which prints ASCII characters.
+;
+; Switch to the DATA tab in the memory panel
+; after assembling to see the string sitting
+; in memory. Watch it output character by
+; character as you step through the code.
+; ============================================
+
+        ORG     0000H
+
+START:
+        LXI     SP, 0F000H  ; Initialize stack pointer
+        LXI     H, MSG      ; HL points to message
+        MVI     B, MSGLEN   ; B = message length
+
+LOOP:
+        MOV     A, M        ; Load character from memory
+        OUT     02H         ; Output as ASCII to console
+        INX     H           ; Advance pointer to next char
+        DCR     B           ; Decrement counter
+        JNZ     LOOP        ; Repeat until all chars sent
+
+        HLT                 ; Done
+
+; ============================================
+; Data section — stored at 0200H
+; Switch to DATA tab to see these bytes
+; ============================================
+
+        ORG     0200H
+
+MSGLEN  EQU     14          ; Length of message (12 chars + CR + LF)
+
+MSG:    DB      'Hello World!', 0DH, 0AH  ; CR+LF line ending
+
+        END
+`;
 
   // ---- State -----------------------------------------------
 
@@ -227,6 +276,9 @@ PRINTIT:
   let currentFilename = 'program.asm';
   let breakpoints = new Set();
   let savedStatus = null;
+  let activeMemTab = 'code'; // 'code', 'data', 'stack'
+  let dataBase = 0x0100;     // default data base address
+  let autoDataBase = null;   // auto-detected data address from assembly
 
   const SPEED_MAP = { 1: 50, 2: 20, 3: 5, 4: 1, 5: 0 };
   const SPEED_LABELS = { 1: 'MIN', 2: 'SLOW', 3: 'MED', 4: 'FAST', 5: 'MAX' };
@@ -253,8 +305,13 @@ PRINTIT:
   const symbolTableBody = document.getElementById('symbol-table-body');
   const symbolTableEmpty= document.getElementById('symbol-table-empty');
   const symbolTable     = document.getElementById('symbol-table');
-  const memAddrInput = document.getElementById('mem-addr');
-  const memDump     = document.getElementById('mem-dump');
+  const memAddrInput    = document.getElementById('mem-addr');
+  const memAddrControls = document.getElementById('mem-addr-controls');
+  const memTabLabel     = document.getElementById('mem-tab-label');
+  const memTabCode      = document.getElementById('mem-tab-code');
+  const memTabData      = document.getElementById('mem-tab-data');
+  const memTabStack     = document.getElementById('mem-tab-stack');
+  const memDump         = document.getElementById('mem-dump');
   const consoleOutput = document.getElementById('console-output');
   const consoleInput  = document.getElementById('console-input');
   const statusIndicator = document.getElementById('status-indicator');
@@ -272,8 +329,29 @@ PRINTIT:
         // Print as decimal + hex
         consolePrint(`OUT[01]: ${value} (0x${value.toString(16).toUpperCase().padStart(2,'0')})`, 'console-line');
       } else if (port === 0x02) {
-        // Print as ASCII character
-        consolePrint(String.fromCharCode(value), 'console-line');
+        // Print as ASCII character — accumulate into current line
+        // CR (0DH) and LF (0AH) both trigger a new line
+        if (value === 0x0A || value === 0x0D) {
+          // Start a new ascii-out line on next character
+          const sentinel = document.createElement('div');
+          sentinel.className = 'console-line ascii-sentinel';
+          consoleOutput.appendChild(sentinel);
+          consoleOutput.scrollTop = consoleOutput.scrollHeight;
+        } else {
+          const char = String.fromCharCode(value);
+          // Find last non-sentinel ascii line
+          const lines = consoleOutput.querySelectorAll('.console-line.ascii-out');
+          let lastLine = lines[lines.length - 1];
+          // Check if there's a sentinel after the last ascii-out line
+          const lastSentinel = consoleOutput.querySelector('.ascii-sentinel:last-child');
+          if (!lastLine || lastSentinel) {
+            lastLine = document.createElement('div');
+            lastLine.className = 'console-line ascii-out';
+            consoleOutput.appendChild(lastLine);
+          }
+          lastLine.textContent += char;
+          consoleOutput.scrollTop = consoleOutput.scrollHeight;
+        }
       } else {
         consolePrint(`OUT port 0x${port.toString(16).toUpperCase().padStart(2,'0')}: 0x${value.toString(16).toUpperCase().padStart(2,'0')}`, 'console-line info');
       }
@@ -317,6 +395,12 @@ PRINTIT:
     assembled = true;
     clearAllBreakpoints();
     renderSymbolTable(result.symbols);
+
+    // Auto-detect data region from DB/DW/DS directives
+    autoDataBase = null;
+    if (result.dataAddresses && result.dataAddresses.length > 0) {
+      autoDataBase = Math.min(...result.dataAddresses);
+    }
 
     Emulator.loadProgram(result.bytes, result.origin);
     prevState = null;
@@ -412,6 +496,10 @@ PRINTIT:
       renderMemory(assemblyResult.origin);
       setStatus('ok', 'RESET');
       consolePrint('--- RESET ---', 'console-line sys');
+      // Force next ascii output to start on a fresh line
+      const sentinel = document.createElement('div');
+      sentinel.className = 'console-line ascii-sentinel';
+      consoleOutput.appendChild(sentinel);
     }
   }
 
@@ -574,8 +662,14 @@ PRINTIT:
     const s = Emulator.getState();
     const frag = document.createDocumentFragment();
 
+    // Determine effective base address based on active tab
+    let effectiveBase = memBase;
+    if (activeMemTab === 'stack') {
+      effectiveBase = memBase; // set by scrollMemoryToPC for stack
+    }
+
     for (let row = 0; row < MEM_ROWS; row++) {
-      const addr = (memBase + row * BYTES_PER_ROW) & 0xFFFF;
+      const addr = (effectiveBase + row * BYTES_PER_ROW) & 0xFFFF;
       const rowEl = document.createElement('div');
       rowEl.className = 'mem-row';
 
@@ -595,9 +689,17 @@ PRINTIT:
         byteEl.className = 'mem-byte';
         byteEl.textContent = hex2(b);
 
-        if (a === s.PC) byteEl.classList.add('pc-byte');
-        else if (a === s.SP) byteEl.classList.add('sp-byte');
-        else if (b !== 0) byteEl.classList.add('nonzero');
+        if (activeMemTab === 'code') {
+          if (a === s.PC) byteEl.classList.add('pc-byte');
+          else if (b !== 0) byteEl.classList.add('nonzero');
+        } else if (activeMemTab === 'stack') {
+          if (a === s.SP) byteEl.classList.add('sp-byte');
+          else if (a > s.SP) byteEl.classList.add('stack-active'); // on the stack
+          else byteEl.classList.add('stack-below');                // below SP
+        } else {
+          // DATA tab
+          if (b !== 0) byteEl.classList.add('nonzero');
+        }
 
         bytesEl.appendChild(byteEl);
         ascii += (b >= 0x20 && b < 0x7F) ? String.fromCharCode(b) : '.';
@@ -618,28 +720,81 @@ PRINTIT:
 
   function scrollMemoryToPC() {
     const s = Emulator.getState();
-    const pc = s.PC;
 
-    // Which row is the PC currently in?
-    const pcRow = Math.floor((pc - memBase) / BYTES_PER_ROW);
-
-    // Comfort zone: rows 3 through 12 (out of 0-15)
-    // Only scroll if PC is outside that zone
-    const ZONE_TOP    = 3;
-    const ZONE_BOTTOM = 12;
-
-    if (pcRow >= ZONE_TOP && pcRow <= ZONE_BOTTOM) {
-      // PC is comfortably visible — just re-render in place
+    if (activeMemTab === 'code') {
+      const pc = s.PC;
+      const pcRow = Math.floor((pc - memBase) / BYTES_PER_ROW);
+      const ZONE_TOP    = 3;
+      const ZONE_BOTTOM = 12;
+      if (pcRow >= ZONE_TOP && pcRow <= ZONE_BOTTOM) {
+        renderMemory();
+        return;
+      }
+      const targetRow = 6;
+      const newBase = pc - (targetRow * BYTES_PER_ROW);
+      memBase = Math.max(0, newBase) & 0xFFF0;
       renderMemory();
-      return;
-    }
 
-    // PC is outside comfort zone — recenter it on row 6 (upper-middle)
-    const targetRow = 6;
-    const newBase = pc - (targetRow * BYTES_PER_ROW);
-    memBase = Math.max(0, newBase) & 0xFFF0;
-    renderMemory();
+    } else if (activeMemTab === 'stack') {
+      // Always follow SP — keep it near row 6
+      const sp = s.SP;
+      const spRow = Math.floor((sp - memBase) / BYTES_PER_ROW);
+      const ZONE_TOP    = 3;
+      const ZONE_BOTTOM = 12;
+      if (spRow < ZONE_TOP || spRow > ZONE_BOTTOM) {
+        const targetRow = 6;
+        const newBase = sp - (targetRow * BYTES_PER_ROW);
+        memBase = Math.max(0, newBase) & 0xFFF0;
+      }
+      renderMemory();
+
+    } else {
+      // DATA tab — stay put, just re-render to reflect updated values
+      renderMemory();
+    }
   }
+
+  // ---- Memory tab switching --------------------------------
+
+  function setMemTab(tab) {
+    activeMemTab = tab;
+    memTabCode.classList.toggle('active', tab === 'code');
+    memTabData.classList.toggle('active', tab === 'data');
+    memTabStack.classList.toggle('active', tab === 'stack');
+
+    if (tab === 'code') {
+      memAddrControls.style.visibility = 'visible';
+      memTabLabel.classList.add('hidden');
+      scrollMemoryToPC();
+
+    } else if (tab === 'data') {
+      memAddrControls.style.visibility = 'visible';
+      if (autoDataBase !== null) {
+        memBase = autoDataBase & 0xFFF0;
+        memAddrInput.value = hex4(autoDataBase);
+        memTabLabel.textContent = `AUTO-DETECTED DATA: ${hex4(autoDataBase)}H`;
+        memTabLabel.classList.remove('hidden');
+      } else {
+        memBase = dataBase & 0xFFF0;
+        memAddrInput.value = hex4(dataBase);
+        memTabLabel.classList.add('hidden');
+      }
+      renderMemory();
+
+    } else if (tab === 'stack') {
+      memAddrControls.style.visibility = 'hidden';
+      memTabLabel.classList.add('hidden');
+      const s = Emulator.getState();
+      const targetRow = 6;
+      const newBase = s.SP - (targetRow * BYTES_PER_ROW);
+      memBase = Math.max(0, newBase) & 0xFFF0;
+      renderMemory();
+    }
+  }
+
+  memTabCode.addEventListener('click',  () => setMemTab('code'));
+  memTabData.addEventListener('click',  () => setMemTab('data'));
+  memTabStack.addEventListener('click', () => setMemTab('stack'));
 
   // ---- Console ---------------------------------------------
 
@@ -890,6 +1045,9 @@ PRINTIT:
     hideErrors();
     clearSymbolTable();
     assembled = false;
+    autoDataBase = null;
+    activeMemTab = 'code';
+    setMemTab('code');
     assemblyResult = null;
     Emulator.reset();
     prevState = null;
@@ -905,6 +1063,11 @@ PRINTIT:
     const addr = parseInt(memAddrInput.value, 16);
     if (!isNaN(addr)) {
       memBase = addr & 0xFFF0;
+      if (activeMemTab === 'data') {
+        dataBase = addr;
+        autoDataBase = null; // manual override clears auto
+        memTabLabel.classList.add('hidden');
+      }
       renderMemory();
     }
   });
@@ -995,7 +1158,7 @@ PRINTIT:
   setStatus('idle', 'READY');
   setControlsState(false);
   renderMemory(0);
-  editor.setValue(SAMPLES.fibonacci);
+  editor.setValue('');
   editor.refresh();
 
   // Status bar hint on gutter hover

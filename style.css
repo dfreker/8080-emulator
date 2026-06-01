@@ -571,6 +571,17 @@ body::after {
    MEMORY PANEL
    ============================================================ */
 
+.mem-tab-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--amber);
+  padding: 2px 8px;
+  background: rgba(255,179,0,0.06);
+  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
 #mem-panel {
   flex: 1;
   display: flex;
@@ -645,6 +656,13 @@ body::after {
   color: var(--bg);
   background: var(--amber);
   text-shadow: none;
+}
+.mem-byte.stack-active {
+  color: var(--green);
+  border-bottom: 1px solid var(--green-dim);
+}
+.mem-byte.stack-below {
+  color: var(--text-muted);
 }
 
 .mem-ascii {

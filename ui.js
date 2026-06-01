@@ -424,7 +424,7 @@ PRINTIT:
     updateCycles(s);
     highlightPCLine(s.PC);
     updateSymbolHighlight(s.PC);
-    renderMemory();
+    scrollMemoryToPC();
     prevState = { A:s.A, B:s.B, C:s.C, D:s.D, E:s.E, H:s.H, L:s.L,
                   SP:s.SP, PC:s.PC,
                   flagS:s.flagS, flagZ:s.flagZ, flagAC:s.flagAC, flagP:s.flagP, flagCY:s.flagCY };
@@ -618,7 +618,26 @@ PRINTIT:
 
   function scrollMemoryToPC() {
     const s = Emulator.getState();
-    memBase = s.PC & 0xFFF0;
+    const pc = s.PC;
+
+    // Which row is the PC currently in?
+    const pcRow = Math.floor((pc - memBase) / BYTES_PER_ROW);
+
+    // Comfort zone: rows 3 through 12 (out of 0-15)
+    // Only scroll if PC is outside that zone
+    const ZONE_TOP    = 3;
+    const ZONE_BOTTOM = 12;
+
+    if (pcRow >= ZONE_TOP && pcRow <= ZONE_BOTTOM) {
+      // PC is comfortably visible — just re-render in place
+      renderMemory();
+      return;
+    }
+
+    // PC is outside comfort zone — recenter it on row 6 (upper-middle)
+    const targetRow = 6;
+    const newBase = pc - (targetRow * BYTES_PER_ROW);
+    memBase = Math.max(0, newBase) & 0xFFF0;
     renderMemory();
   }
 

@@ -97,7 +97,7 @@ const Assembler = (() => {
 
   // ---- Directive handlers ----------------------------------
 
-  const DIRECTIVES = new Set(['ORG','EQU','DB','DW','DS','END','SET','DEFB','DEFW','DEFS']);
+  const DIRECTIVES = new Set(['ORG','EQU','DB','DW','DS','END','SET','DEFB','DEFW','DEFS','INCLUDE']);
 
   // ---- Mnemonic -> encoder ---------------------------------
   // Each returns array of byte values (numbers)
@@ -258,10 +258,65 @@ const Assembler = (() => {
     };
   }
 
+  // ---- INCLUDE resolver ------------------------------------
+
+  function resolveIncludes(source, fileResolver, included) {
+    const lines = source.split('\n');
+    const result = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      // Check for INCLUDE directive
+      const incMatch = trimmed.match(/^INCLUDE\s+["'](.+?)["']/i);
+      if (incMatch) {
+        const filename = incMatch[1].trim();
+
+        // Circular include detection
+        if (included.has(filename.toLowerCase())) {
+          return { error: `Circular INCLUDE detected: "${filename}"`, errorLine: i + 1 };
+        }
+
+        // Get file contents from resolver
+        if (!fileResolver) {
+          return { error: `INCLUDE "${filename}" — no file resolver available`, errorLine: i + 1 };
+        }
+
+        const includedSource = fileResolver(filename);
+        if (includedSource === null || includedSource === undefined) {
+          return { error: `INCLUDE "${filename}" — file not found`, errorLine: i + 1 };
+        }
+
+        // Recursively resolve includes in the included file
+        const newIncluded = new Set(included);
+        newIncluded.add(filename.toLowerCase());
+        const sub = resolveIncludes(includedSource, fileResolver, newIncluded);
+        if (sub.error) return sub;
+
+        // Add a comment marker so error messages can reference the file
+        result.push(`; === BEGIN INCLUDE: ${filename} ===`);
+        result.push(...sub.lines);
+        result.push(`; === END INCLUDE: ${filename} ===`);
+        continue;
+      }
+
+      result.push(line);
+    }
+
+    return { lines: result };
+  }
+
   // ---- Two-pass assembly -----------------------------------
 
-  function assemble(source) {
-    const lines = source.split('\n');
+  function assemble(source, fileResolver) {
+    // Resolve INCLUDE directives before parsing
+    const resolvedSource = resolveIncludes(source, fileResolver, new Set());
+    if (resolvedSource.error) {
+      return { success: false, errors: [{ line: resolvedSource.errorLine, msg: resolvedSource.error }], bytes: null, symbols: {}, addrToLine: {}, origin: 0, dataAddresses: [] };
+    }
+
+    const lines = resolvedSource.lines;
     const errors = [];
     const symbols = {};
     let origin = 0;

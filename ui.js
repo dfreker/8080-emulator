@@ -84,22 +84,262 @@
     'asm-string':    'cm-asm-string',
   };
 
-  // Initialize CodeMirror
-  const editor = CodeMirror.fromTextArea(document.getElementById('code-editor'), {
-    mode: 'asm8080',
-    theme: 'default',
-    lineNumbers: true,
-    lineWrapping: false,
-    indentWithTabs: true,
-    tabSize: 8,
-    autofocus: true,
-    styleActiveLine: true,
-    gutters: ['CodeMirror-linenumbers', 'breakpoints'],
-  });
+  // ============================================================
+  // Multi-file tab management
+  // ============================================================
 
-  // Breakpoint gutter click — fires for any gutter column
-  editor.on('gutterClick', (cm, lineNum, gutter) => {
-    toggleBreakpoint(lineNum);
+  let files = [];        // Array of { id, filename, cm, isMain }
+  let activeFileId = null;
+  let nextFileId = 1;
+
+  function createCodeMirror(container) {
+    const cm = CodeMirror(container, {
+      mode: 'asm8080',
+      theme: 'default',
+      lineNumbers: true,
+      lineWrapping: false,
+      indentWithTabs: true,
+      tabSize: 8,
+      styleActiveLine: true,
+      gutters: ['CodeMirror-linenumbers', 'breakpoints'],
+    });
+
+    // Breakpoint gutter click
+    cm.on('gutterClick', (cm, lineNum) => {
+      if (getActiveFile() && getActiveFile().cm === cm) {
+        toggleBreakpoint(lineNum);
+      }
+    });
+
+    return cm;
+  }
+
+  function getActiveFile() {
+    return files.find(f => f.id === activeFileId) || null;
+  }
+
+  function getMainFile() {
+    return files.find(f => f.isMain) || files[0] || null;
+  }
+
+  function fileResolver(filename) {
+    const f = files.find(f => f.filename.toLowerCase() === filename.toLowerCase());
+    return f ? f.cm.getValue() : null;
+  }
+
+  function addFile(filename, content, makeMain) {
+    const id = nextFileId++;
+    const wrap = document.createElement('div');
+    wrap.className = 'file-editor-wrap';
+    wrap.dataset.fileId = id;
+    document.getElementById('editor-container').appendChild(wrap);
+
+    const cm = createCodeMirror(wrap);
+    if (content) cm.setValue(content);
+
+    const file = {
+      id,
+      filename: filename || `untitled${id}.asm`,
+      cm,
+      isMain: makeMain || files.length === 0,
+      wrap,
+    };
+
+    files.push(file);
+    renderFileTabs();
+    switchToFile(id);
+
+    // Set up gutter tooltip for new editor
+    setTimeout(() => {
+      setupGutterTooltip(cm);
+    }, 100);
+
+    return file;
+  }
+
+  function removeFile(id) {
+    if (files.length <= 1) {
+      // Don't close the last file — just clear it
+      const f = files[0];
+      f.cm.setValue('');
+      f.filename = 'untitled1.asm';
+      f.isMain = true;
+      renderFileTabs();
+      return;
+    }
+
+    const idx = files.findIndex(f => f.id === id);
+    if (idx === -1) return;
+
+    const f = files[idx];
+    f.wrap.remove();
+    files.splice(idx, 1);
+
+    // If removed file was main, make first file main
+    if (f.isMain && files.length > 0) files[0].isMain = true;
+
+    // Switch to adjacent file
+    const newActive = files[Math.min(idx, files.length - 1)];
+    renderFileTabs();
+    switchToFile(newActive.id);
+  }
+
+  function switchToFile(id) {
+    activeFileId = id;
+    files.forEach(f => {
+      f.wrap.classList.toggle('active', f.id === id);
+    });
+    renderFileTabs();
+
+    // Refresh CodeMirror for the active file
+    const f = files.find(f => f.id === id);
+    if (f) {
+      setTimeout(() => { f.cm.refresh(); f.cm.focus(); }, 10);
+    }
+
+    // Re-setup gutter tooltip for active editor
+    setTimeout(() => {
+      if (f) setupGutterTooltip(f.cm);
+    }, 150);
+  }
+
+  function setMainFile(id) {
+    files.forEach(f => f.isMain = f.id === id);
+    renderFileTabs();
+  }
+
+  function renderFileTabs() {
+    const tabsEl = document.getElementById('file-tabs');
+    tabsEl.innerHTML = '';
+
+    files.forEach(f => {
+      const tab = document.createElement('div');
+      tab.className = 'file-tab' +
+        (f.id === activeFileId ? ' active' : '') +
+        (f.isMain ? ' is-main' : '');
+      tab.dataset.fileId = f.id;
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'tab-filename';
+      nameSpan.textContent = f.filename;
+      nameSpan.title = f.isMain ? `${f.filename} (MAIN)` : f.filename;
+
+      const closeBtn = document.createElement('span');
+      closeBtn.className = 'tab-close';
+      closeBtn.textContent = '×';
+      closeBtn.title = 'Close file';
+
+      tab.appendChild(nameSpan);
+      tab.appendChild(closeBtn);
+      tabsEl.appendChild(tab);
+
+      // Click tab to switch
+      tab.addEventListener('click', (e) => {
+        if (e.target === closeBtn) return;
+        switchToFile(f.id);
+      });
+
+      // Double-click filename to rename
+      nameSpan.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        startRename(f.id, nameSpan, tab);
+      });
+
+      // Close button
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (files.length > 1 && !confirm(`Close "${f.filename}"?`)) return;
+        removeFile(f.id);
+      });
+
+      // Right-click context menu
+      tab.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        showTabContextMenu(e, f.id);
+      });
+    });
+  }
+
+  function startRename(id, nameSpan, tab) {
+    const f = files.find(f => f.id === id);
+    if (!f) return;
+
+    const input = document.createElement('input');
+    input.className = 'tab-filename-input';
+    input.value = f.filename;
+    tab.replaceChild(input, nameSpan);
+    input.focus();
+    input.select();
+
+    function confirmRename() {
+      let newName = input.value.trim();
+      if (!newName) newName = f.filename;
+      // Ensure .asm extension
+      if (!newName.match(/\.(asm|s|txt)$/i)) newName += '.asm';
+      // Check for duplicates
+      const duplicate = files.find(other => other.id !== id && other.filename.toLowerCase() === newName.toLowerCase());
+      if (duplicate) {
+        consolePrint(`Filename "${newName}" already exists.`, 'console-line err');
+        newName = f.filename;
+      }
+      f.filename = newName;
+      renderFileTabs();
+    }
+
+    input.addEventListener('blur', confirmRename);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); confirmRename(); }
+      if (e.key === 'Escape') { e.preventDefault(); f.filename = f.filename; renderFileTabs(); }
+    });
+  }
+
+  // Tab context menu
+  let contextMenuEl = null;
+
+  function showTabContextMenu(e, fileId) {
+    hideContextMenu();
+    const f = files.find(f => f.id === fileId);
+    if (!f) return;
+
+    const menu = document.createElement('div');
+    menu.id = 'tab-context-menu';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top  = e.clientY + 'px';
+
+    const items = [
+      { label: f.isMain ? '★ MAIN FILE (current)' : 'Set as MAIN file', cls: f.isMain ? 'ctx-active' : '', action: () => setMainFile(fileId) },
+      { label: 'Rename', action: () => {
+        const tab = document.querySelector(`.file-tab[data-file-id="${fileId}"]`);
+        const nameSpan = tab ? tab.querySelector('.tab-filename') : null;
+        if (tab && nameSpan) startRename(fileId, nameSpan, tab);
+      }},
+      { label: 'Close', cls: 'ctx-danger', action: () => {
+        if (files.length > 1 && !confirm(`Close "${f.filename}"?`)) return;
+        removeFile(fileId);
+      }},
+    ];
+
+    items.forEach(item => {
+      const div = document.createElement('div');
+      div.className = 'ctx-menu-item' + (item.cls ? ' ' + item.cls : '');
+      div.textContent = item.label;
+      div.addEventListener('click', () => { hideContextMenu(); item.action(); });
+      menu.appendChild(div);
+    });
+
+    document.body.appendChild(menu);
+    contextMenuEl = menu;
+
+    document.addEventListener('click', hideContextMenu, { once: true });
+  }
+
+  function hideContextMenu() {
+    if (contextMenuEl) { contextMenuEl.remove(); contextMenuEl = null; }
+  }
+
+  // + New file button
+  document.getElementById('btn-new-file').addEventListener('click', () => {
+    addFile(`untitled${nextFileId}.asm`, '', false);
   });
 
   // ---- Sample programs -------------------------------------
@@ -273,7 +513,6 @@ MSG:    DB      'Hello World!', 0DH, 0AH  ; CR+LF line ending
   let prevState = null;
   let pendingInput = null;
   let inputResolve = null;
-  let currentFilename = 'program.asm';
   let breakpoints = new Set();
   let savedStatus = null;
   let activeMemTab = 'code'; // 'code', 'data', 'stack'
@@ -376,10 +615,12 @@ MSG:    DB      'Hello World!', 0DH, 0AH  ; CR+LF line ending
   // ---- Assemble --------------------------------------------
 
   function assemble() {
-    const source = editor.getValue();
+    const mainFile = getMainFile();
+    if (!mainFile) return;
+    const source = mainFile.cm.getValue();
     if (!source.trim()) return;
 
-    const result = Assembler.assemble(source);
+    const result = Assembler.assemble(source, fileResolver);
     assemblyResult = result;
 
     if (!result.success) {
@@ -569,25 +810,34 @@ MSG:    DB      'Hello World!', 0DH, 0AH  ; CR+LF line ending
 
   let pcLineWidget = null;
   let lastPCLine = -1;
+  let lastPCEditor = null;
 
   function highlightPCLine(pc) {
     if (!assemblyResult || !assemblyResult.addrToLine) return;
+    const mainFile = getMainFile();
+    if (!mainFile) return;
+    const cm = mainFile.cm;
     const lineNum = assemblyResult.addrToLine[pc];
+
     if (lineNum === undefined) {
-      if (lastPCLine >= 0) {
-        editor.removeLineClass(lastPCLine, 'background', 'cm-pc-line');
+      if (lastPCLine >= 0 && lastPCEditor) {
+        lastPCEditor.removeLineClass(lastPCLine, 'background', 'cm-pc-line');
         lastPCLine = -1;
+        lastPCEditor = null;
       }
       return;
     }
-    if (lastPCLine >= 0 && lastPCLine !== lineNum) {
-      editor.removeLineClass(lastPCLine, 'background', 'cm-pc-line');
+    if (lastPCLine >= 0 && lastPCEditor && (lastPCLine !== lineNum || lastPCEditor !== cm)) {
+      lastPCEditor.removeLineClass(lastPCLine, 'background', 'cm-pc-line');
     }
-    editor.addLineClass(lineNum, 'background', 'cm-pc-line');
+    cm.addLineClass(lineNum, 'background', 'cm-pc-line');
     lastPCLine = lineNum;
-    // Scroll editor to keep PC line visible (only during step, not full run)
+    lastPCEditor = cm;
+
+    // Switch to main file tab if not already there and scroll to PC line
     if (!running) {
-      editor.scrollIntoView({ line: lineNum, ch: 0 }, 80);
+      if (activeFileId !== mainFile.id) switchToFile(mainFile.id);
+      cm.scrollIntoView({ line: lineNum, ch: 0 }, 80);
     }
   }
 
@@ -610,30 +860,31 @@ MSG:    DB      'Hello World!', 0DH, 0AH  ; CR+LF line ending
   }
 
   function toggleBreakpoint(lineNum) {
-    // If already set, remove it
+    const f = getActiveFile();
+    if (!f) return;
+    const cm = f.cm;
+
     if (breakpoints.has(lineNum)) {
       breakpoints.delete(lineNum);
-      editor.setGutterMarker(lineNum, 'breakpoints', null);
+      cm.setGutterMarker(lineNum, 'breakpoints', null);
       return;
     }
 
-    // Require assembly before setting breakpoints
     if (!assembled || !assemblyResult || !assemblyResult.addrToLine) {
-      editor.setGutterMarker(lineNum, 'breakpoints', makeMarker(true));
-      setTimeout(() => editor.setGutterMarker(lineNum, 'breakpoints', null), 800);
+      cm.setGutterMarker(lineNum, 'breakpoints', makeMarker(true));
+      setTimeout(() => cm.setGutterMarker(lineNum, 'breakpoints', null), 800);
       return;
     }
 
-    // Check if this line number appears as a value in addrToLine
     const validLines = new Set(Object.values(assemblyResult.addrToLine));
     if (!validLines.has(lineNum)) {
-      editor.setGutterMarker(lineNum, 'breakpoints', makeMarker(true));
-      setTimeout(() => editor.setGutterMarker(lineNum, 'breakpoints', null), 800);
+      cm.setGutterMarker(lineNum, 'breakpoints', makeMarker(true));
+      setTimeout(() => cm.setGutterMarker(lineNum, 'breakpoints', null), 800);
       return;
     }
 
     breakpoints.add(lineNum);
-    editor.setGutterMarker(lineNum, 'breakpoints', makeMarker(false));
+    cm.setGutterMarker(lineNum, 'breakpoints', makeMarker(false));
   }
 
   function makeMarker(invalid) {
@@ -645,8 +896,10 @@ MSG:    DB      'Hello World!', 0DH, 0AH  ; CR+LF line ending
   }
 
   function clearAllBreakpoints() {
-    breakpoints.forEach(lineNum => {
-      editor.setGutterMarker(lineNum, 'breakpoints', null);
+    files.forEach(f => {
+      breakpoints.forEach(lineNum => {
+        f.cm.setGutterMarker(lineNum, 'breakpoints', null);
+      });
     });
     breakpoints.clear();
   }
@@ -967,13 +1220,22 @@ MSG:    DB      'Hello World!', 0DH, 0AH  ; CR+LF line ending
       const key = item.dataset.sample;
       const src = SAMPLES[key];
       if (!src) return;
-      if (editor.getValue().trim() && !confirm('Replace current code with sample program?')) return;
-      editor.setValue(src);
-      currentFilename = key + '.asm';
-      hideErrors();
-      assembled = false;
-      setControlsState(false);
-      setStatus('idle', 'READY');
+
+      // For Hello World, load two files: main.asm and the data
+      // For others, load into main file
+      if (confirm('Load sample? This will replace all current files.')) {
+        clearAllFiles();
+        if (key === 'helloworld') {
+          // Split into two files for demonstration
+          addFile('main.asm', src, true);
+        } else {
+          addFile('main.asm', src, true);
+        }
+        hideErrors();
+        assembled = false;
+        setControlsState(false);
+        setStatus('idle', 'READY');
+      }
       sampleDropdown.classList.add('hidden');
     });
   });
@@ -986,7 +1248,7 @@ MSG:    DB      'Hello World!', 0DH, 0AH  ; CR+LF line ending
   // ---- LOAD FILE -------------------------------------------
 
   btnLoadFile.addEventListener('click', () => {
-    fileInput.value = ''; // reset so same file can be reloaded
+    fileInput.value = '';
     fileInput.click();
   });
 
@@ -995,8 +1257,14 @@ MSG:    DB      'Hello World!', 0DH, 0AH  ; CR+LF line ending
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (e) => {
-      editor.setValue(e.target.result);
-      currentFilename = file.name;
+      // Check if a file with this name already exists
+      const existing = files.find(f => f.filename.toLowerCase() === file.name.toLowerCase());
+      if (existing) {
+        existing.cm.setValue(e.target.result);
+        switchToFile(existing.id);
+      } else {
+        addFile(file.name, e.target.result, files.length === 0);
+      }
       hideErrors();
       assembled = false;
       setControlsState(false);
@@ -1009,22 +1277,26 @@ MSG:    DB      'Hello World!', 0DH, 0AH  ; CR+LF line ending
   // ---- SAVE ------------------------------------------------
 
   btnSave.addEventListener('click', () => {
-    const source = editor.getValue();
+    const f = getActiveFile();
+    if (!f) return;
+    const source = f.cm.getValue();
     if (!source.trim()) return;
     const blob = new Blob([source], { type: 'text/plain' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = currentFilename;
+    a.download = f.filename;
     a.click();
     URL.revokeObjectURL(url);
-    consolePrint(`Saved: ${currentFilename}`, 'console-line sys');
+    consolePrint(`Saved: ${f.filename}`, 'console-line sys');
   });
 
   // ---- COPY ------------------------------------------------
 
   btnCopy.addEventListener('click', () => {
-    const source = editor.getValue();
+    const f = getActiveFile();
+    if (!f) return;
+    const source = f.cm.getValue();
     if (!source.trim()) return;
     navigator.clipboard.writeText(source).then(() => {
       btnCopy.textContent = 'COPIED \u2713';
@@ -1036,12 +1308,11 @@ MSG:    DB      'Hello World!', 0DH, 0AH  ; CR+LF line ending
     });
   });
 
-  // ---- CLEAR -----------------------------------------------
+  // ---- CLEAR ALL -------------------------------------------
 
   btnClear.addEventListener('click', () => {
-    if (editor.getValue().trim() && !confirm('Clear the editor?')) return;
-    editor.setValue('');
-    currentFilename = 'program.asm';
+    if (!confirm('Clear all files and reset?')) return;
+    clearAllFiles();
     hideErrors();
     clearSymbolTable();
     assembled = false;
@@ -1153,27 +1424,25 @@ MSG:    DB      'Hello World!', 0DH, 0AH  ; CR+LF line ending
     document.addEventListener('mouseup', onMouseUp);
   });
 
-  // ---- Init ------------------------------------------------
+  // ---- Helpers ---------------------------------------------
 
-  setStatus('idle', 'READY');
-  setControlsState(false);
-  renderMemory(0);
-  editor.setValue('');
-  editor.refresh();
+  function clearAllFiles() {
+    // Remove all editor wraps
+    files.forEach(f => f.wrap.remove());
+    files = [];
+    activeFileId = null;
+    nextFileId = 1;
+    renderFileTabs();
+  }
 
-  // Status bar hint on gutter hover
-  setTimeout(() => {
-    const oldTip = document.getElementById('gutter-tooltip');
-    if (oldTip) oldTip.remove();
-
+  function setupGutterTooltip(cm) {
     function onGutterEnter() {
-      if (savedStatus) return; // already showing hint
+      if (savedStatus) return;
       savedStatus = { cls: statusIndicator.className, text: statusText.innerHTML };
       statusText.innerHTML = 'Click line number to<br>set / clear breakpoint';
     }
     function onGutterLeave(e) {
-      // Only restore if we're leaving the entire gutters zone
-      const guttersEl = document.querySelector('.CodeMirror-gutters');
+      const guttersEl = cm.getWrapperElement().querySelector('.CodeMirror-gutters');
       if (guttersEl && guttersEl.contains(e.relatedTarget)) return;
       if (savedStatus) {
         statusIndicator.className = savedStatus.cls;
@@ -1182,27 +1451,33 @@ MSG:    DB      'Hello World!', 0DH, 0AH  ; CR+LF line ending
       }
     }
 
-    // Attach to the gutters container AND every child gutter element
-    const targets = document.querySelectorAll(
-      '.CodeMirror-gutters, .CodeMirror-gutter, .CodeMirror-linenumbers, .CodeMirror-linenumber'
-    );
-    targets.forEach(el => {
+    const wrap = cm.getWrapperElement();
+    wrap.querySelectorAll('.CodeMirror-gutters, .CodeMirror-gutter, .CodeMirror-linenumbers').forEach(el => {
       el.addEventListener('mouseenter', onGutterEnter);
       el.addEventListener('mouseleave', onGutterLeave);
     });
 
-    // Also re-attach when new line number elements are created (CodeMirror renders them dynamically)
-    editor.on('update', () => {
-      document.querySelectorAll('.CodeMirror-linenumber:not([data-bp-listener])').forEach(el => {
+    cm.on('update', () => {
+      wrap.querySelectorAll('.CodeMirror-linenumber:not([data-bp-listener])').forEach(el => {
         el.setAttribute('data-bp-listener', '1');
         el.addEventListener('mouseenter', onGutterEnter);
         el.addEventListener('mouseleave', onGutterLeave);
       });
     });
-  }, 300);
+  }
+
+  // ---- Init ------------------------------------------------
+
+  setStatus('idle', 'READY');
+  setControlsState(false);
+  renderMemory(0);
+
+  // Create initial empty file
+  addFile('main.asm', '', true);
 
   consolePrint('8080/8085 Emulator ready. Press ASSEMBLE to begin.', 'console-line sys');
   consolePrint('I/O: OUT port 01H prints byte value. OUT port 02H prints ASCII.', 'console-line sys');
   consolePrint('After assembly, click a line number to set or clear a breakpoint.', 'console-line sys');
+  consolePrint('Tip: right-click a file tab to set it as MAIN or rename it.', 'console-line sys');
 
 })();
